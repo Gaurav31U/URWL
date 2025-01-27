@@ -52,6 +52,64 @@ def ContrastiveLoss(z_i, z_j, batch_size, temperature, negatives_mask):
     loss = torch.sum(loss_partial) / (2 * batch_size)
     return loss
 
+# def poison_attack(features, labels, poison_rate):
+#     """Inject label noise for poison attack."""
+#     num_nodes = len(labels)
+#     num_poison = int(poison_rate * num_nodes)
+#     poison_indices = np.random.choice(num_nodes, num_poison, replace=False)
+#     poisoned_labels = labels.clone()
+#     poisoned_labels[poison_indices] = torch.randint(0, labels.max() + 1, (num_poison,)).to(device)
+#     return poison_indices, poisoned_labels
+
+# def evasion_attack(features, poison_indices, epsilon):
+#     """Perturb features of poisoned nodes for evasion attack."""
+#     perturbed_features = features.clone()
+#     perturbation = torch.randn_like(features[poison_indices]) * epsilon
+#     perturbed_features[poison_indices] += perturbation
+#     return perturbed_features
+
+def poison_attack(graph, poison_ratio=0.05):
+    """
+    Add poisoned edges/nodes to the graph.
+    Args:
+        graph: DGL Graph object
+        poison_ratio: Fraction of poisoned data to inject
+    Returns:
+        Poisoned graph
+    """
+    num_edges = graph.num_edges()
+    num_poison_edges = int(num_edges * poison_ratio)
+    
+    # Randomly select nodes to connect for poisoning
+    u = torch.randint(0, graph.num_nodes(), (num_poison_edges,))
+    v = torch.randint(0, graph.num_nodes(), (num_poison_edges,))
+    
+    poisoned_graph = dgl.add_edges(graph, u, v)
+    print(f"Added {num_poison_edges} poisoned edges to the graph.")
+    
+    return poisoned_graph
+
+def evasion_attack(features, attack_strength=0.1):
+    """
+    Perturb test features to simulate an evasion attack.
+    Args:
+        features: Node features (torch.Tensor)
+        attack_strength: Strength of the attack (fraction of features to modify)
+    Returns:
+        Perturbed features
+    """
+    perturbed_features = features.clone()
+    num_features = features.shape[1]
+    num_perturbed = int(num_features * attack_strength)
+    
+    for i in range(features.size(0)):
+        perturbed_indices = torch.randperm(num_features)[:num_perturbed]
+        perturbed_features[i, perturbed_indices] += torch.randn(len(perturbed_indices)) * 0.1  # Add noise
+    
+    print("Applied evasion attack to test features.")
+    return perturbed_features
+
+
 def train_division(feature, edges, idx_train, label_noise, epoch, temperature, negatives_mask, w=0.5):
     discriminator.train()
     criterion.train()
@@ -171,6 +229,10 @@ batch_size = args.batch_size
 auc_best_lp = 0
 auc_best_hp = 0
 
+
+graph = poison_attack(graph, poison_ratio=0.05)
+
+
 print('Begin to training')
 for epoch in range(1, args.epochs):
     # loss1 = train_discriminator1(discriminator, features, edges, args, batch_size, temperature, negatives_mask)
@@ -182,6 +244,8 @@ for epoch in range(1, args.epochs):
         criterion.eval()
         adj_lp, adj_hp, weights_lp, weights_hp = discriminator(features, edges)
         emb_lp, emb_hp = discriminator.get_embedding(features, adj_lp, adj_hp)
+        
+        perturbed_features = evasion_attack(features[idx_test])
         
         x_lp_score, x_hp_socre = criterion.to_prob(emb_lp, emb_hp)
         str1 = 'x_lp_score'
