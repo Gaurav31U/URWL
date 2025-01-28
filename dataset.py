@@ -88,11 +88,22 @@ class Dataset:
                 graph = dgl.to_homogeneous(dataset[0], ndata=['feature', 'label', 'train_mask', 'val_mask', 'test_mask'])
                 graph = dgl.add_self_loop(graph)
         elif name == "elliptic":
-            f=open("elliptic.dat","rb") # 已经带方向了
+            f=open("elliptic.dat","rb")
             data=pkl.load(f)
             adj = data.edge_index.numpy()
+
+            print("Dataset")
+            print(adj)
+            print("\n\n")
+
             features=torch.FloatTensor(data.x.numpy())
             labels = torch.LongTensor(data.y.numpy())
+
+            print("Features")
+            print(features)
+            print("Labels\n")
+            print(labels)
+
             graph = dgl.graph((adj[0],adj[1]),num_nodes=len(labels))
             graph.ndata['feature']=features
             graph.ndata['label']=labels
