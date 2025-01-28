@@ -189,8 +189,8 @@ parser.add_argument("--nlayers", type=int, default=2)
 parser.add_argument("--alpha", type=float, default=0.1)
 parser.add_argument('--lr', type=float, default=0.01)
 parser.add_argument('--batch_size', type=int, default=256)
-parser.add_argument("--use_gpu", type=bool, default=False)
-parser.add_argument("--gpu_device",type=int,default=0)
+parser.add_argument("--use_gpu", type=bool, default=True)
+parser.add_argument("--gpu_device",type=int,default=1)
 args = parser.parse_args()
 
 if args.use_gpu:
