@@ -198,6 +198,7 @@ if args.use_gpu:
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 graph = Dataset(args.dataset, args.homo, use_gpu = args.use_gpu,gpu_device = 0).graph
+graph = poison_attack(graph, poison_ratio=0.05)
 
 features = graph.ndata['feature']
 labels = graph.ndata['label']
@@ -230,7 +231,7 @@ auc_best_lp = 0
 auc_best_hp = 0
 
 
-graph = poison_attack(graph, poison_ratio=0.05)
+
 
 
 print('Begin to training')
