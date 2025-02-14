@@ -92,17 +92,8 @@ class Dataset:
             data=pkl.load(f)
             adj = data.edge_index.numpy()
 
-            print("Dataset")
-            print(adj)
-            print("\n\n")
-
             features=torch.FloatTensor(data.x.numpy())
             labels = torch.LongTensor(data.y.numpy())
-
-            print("Features")
-            print(features)
-            print("Labels\n")
-            print(labels)
 
             graph = dgl.graph((adj[0],adj[1]),num_nodes=len(labels))
             graph.ndata['feature']=features

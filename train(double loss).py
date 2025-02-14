@@ -23,6 +23,7 @@ from sklearn.model_selection import train_test_split
 import torch.nn.functional as F
 from sklearn.metrics import f1_score
 
+
 device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 
 def get_best_f1(labels, probs):
@@ -52,31 +53,9 @@ def ContrastiveLoss(z_i, z_j, batch_size, temperature, negatives_mask):
     loss = torch.sum(loss_partial) / (2 * batch_size)
     return loss
 
-# def poison_attack(features, labels, poison_rate):
-#     """Inject label noise for poison attack."""
-#     num_nodes = len(labels)
-#     num_poison = int(poison_rate * num_nodes)
-#     poison_indices = np.random.choice(num_nodes, num_poison, replace=False)
-#     poisoned_labels = labels.clone()
-#     poisoned_labels[poison_indices] = torch.randint(0, labels.max() + 1, (num_poison,)).to(device)
-#     return poison_indices, poisoned_labels
-
-# def evasion_attack(features, poison_indices, epsilon):
-#     """Perturb features of poisoned nodes for evasion attack."""
-#     perturbed_features = features.clone()
-#     perturbation = torch.randn_like(features[poison_indices]) * epsilon
-#     perturbed_features[poison_indices] += perturbation
-#     return perturbed_features
 
 def poison_attack(graph, poison_ratio=0.05):
-    """
-    Add poisoned edges/nodes to the graph.
-    Args:
-        graph: DGL Graph object
-        poison_ratio: Fraction of poisoned data to inject
-    Returns:
-        Poisoned graph
-    """
+
     num_edges = graph.num_edges()
     num_poison_edges = int(num_edges * poison_ratio)
     
@@ -90,14 +69,6 @@ def poison_attack(graph, poison_ratio=0.05):
     return poisoned_graph
 
 def evasion_attack(features, attack_strength=0.1):
-    """
-    Perturb test features to simulate an evasion attack.
-    Args:
-        features: Node features (torch.Tensor)
-        attack_strength: Strength of the attack (fraction of features to modify)
-    Returns:
-        Perturbed features
-    """
     perturbed_features = features.clone()
     num_features = features.shape[1]
     num_perturbed = int(num_features * attack_strength)
@@ -233,6 +204,76 @@ auc_best_hp = 0
 
 
 
+print("Normal Model")
+print('Begin to training')
+for epoch in range(1, args.epochs):
+    # loss1 = train_discriminator1(discriminator, features, edges, args, batch_size, temperature, negatives_mask)
+    loss2 = train_division(features, edges, idx_train, label_noise, epoch, temperature, negatives_mask)
+    print('epoch;{}, loss2:{}'.format(epoch, loss2))
+
+    if epoch % 1 == 0:
+        discriminator.eval()
+        criterion.eval()
+        adj_lp, adj_hp, weights_lp, weights_hp = discriminator(features, edges)
+        emb_lp, emb_hp = discriminator.get_embedding(features, adj_lp, adj_hp)
+        
+        x_lp_score, x_hp_socre = criterion.to_prob(emb_lp, emb_hp)
+        str1 = 'x_lp_score'
+        str2 = 'x_hp_socre'
+    
+        auc, precision, recall, f1 = test_model1(x_lp_score, idx_test, label_noise, str1)
+        auc1, precision1, recall1, f11 = test_model1(x_hp_socre, idx_test, label_noise, str2)
+        
+        if (auc+f1)>auc_best_lp:
+            auc_best_lp = auc + f1
+            a_lp= [epoch, auc, precision, recall, f1]
+            
+        if (auc1+f11)>auc_best_hp:
+            auc_best_hp = auc1 + f11
+            a_hp= [epoch, auc1, precision1, recall1, f11]
+        
+print('LP: epoch:{}, auc:{}, recall:{}, F1:{}'.format(a_lp[0], a_lp[1], a_lp[3], a_lp[4]))
+print('HP: epoch:{}, auc:{}, recall:{}, F1:{}'.format(a_hp[0], a_hp[1], a_hp[3], a_hp[4]))
+print('args:', args)
+print('train (doule loss)')
+
+
+print("Poison Attack")
+graph = poison_attack(graph, poison_ratio=0.05)
+
+features = graph.ndata['feature']
+labels = graph.ndata['label']
+edges = torch.cat([graph.edges()[0].unsqueeze(0), graph.edges()[1].unsqueeze(0)], dim=0)
+nnodes = features.shape[0]
+input_dim = features.shape[1]
+idx_train, idx_val, idx_test = dataset_split(args.dataset, labels.cpu(), args.seed)
+
+label_noise, train_label, train_label_noise = noisify_with_P1(labels,idx_train=idx_train,noise_ratio=args.ptb_rate,random_state=args.seed,nclass=args.nclass)
+
+
+features = features.to(device)
+label_noise = label_noise.to(device)
+edges = edges.to(device)
+
+# model
+negatives_mask = ~torch.eye(args.batch_size * 2, args.batch_size * 2, dtype=bool).to(device)
+discriminator = Edge_Discriminator(args.nlayers, nnodes, input_dim, args.hidden_dim, input_dim, args.hidden_dim, args.alpha, 0.5).to(device)
+criterion = LabelDivision(args, input_dim).to(device)
+
+# optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=0.05)
+# optimizer_criterion = torch.optim.Adam(criterion.parameters(), lr=args.lr)
+optimizer = torch.optim.Adam([{'params':  discriminator.parameters(), 'lr':5*args.lr}, {'params':criterion.parameters()}], lr=args.lr)
+
+f1_best_lp = 0
+f1_best_hp = 0
+temperature = 0.5
+batch_size = args.batch_size
+auc_best_lp = 0
+auc_best_hp = 0
+
+
+
+
 
 print('Begin to training')
 for epoch in range(1, args.epochs):
@@ -247,6 +288,106 @@ for epoch in range(1, args.epochs):
         emb_lp, emb_hp = discriminator.get_embedding(features, adj_lp, adj_hp)
         
         perturbed_features = evasion_attack(features[idx_test])
+        
+        x_lp_score, x_hp_socre = criterion.to_prob(emb_lp, emb_hp)
+        str1 = 'x_lp_score'
+        str2 = 'x_hp_socre'
+    
+        auc, precision, recall, f1 = test_model1(x_lp_score, idx_test, label_noise, str1)
+        auc1, precision1, recall1, f11 = test_model1(x_hp_socre, idx_test, label_noise, str2)
+        
+        if (auc+f1)>auc_best_lp:
+            auc_best_lp = auc + f1
+            a_lp= [epoch, auc, precision, recall, f1]
+            
+        if (auc1+f11)>auc_best_hp:
+            auc_best_hp = auc1 + f11
+            a_hp= [epoch, auc1, precision1, recall1, f11]
+        
+print('LP: epoch:{}, auc:{}, recall:{}, F1:{}'.format(a_lp[0], a_lp[1], a_lp[3], a_lp[4]))
+print('HP: epoch:{}, auc:{}, recall:{}, F1:{}'.format(a_hp[0], a_hp[1], a_hp[3], a_hp[4]))
+print('args:', args)
+print('train (doule loss)')
+
+
+
+
+
+
+
+print("Nettack")
+
+# NETTACK Implementation
+def nettack(graph, node_idx, perturbations=5):
+    """ Implements Nettack: A targeted attack on graph neural networks.
+    Args:
+        graph (DGLGraph): The input graph.
+        node_idx (int): The target node index.
+        perturbations (int): Number of perturbations to apply.
+    Returns:
+        DGLGraph: The attacked graph.
+    """
+    poisoned_graph = graph.clone()
+    
+    for _ in range(perturbations):
+        neighbors = poisoned_graph.successors(node_idx).tolist()
+        possible_nodes = set(range(graph.num_nodes())) - set(neighbors) - {node_idx}
+        if not possible_nodes:
+            break
+        new_node = np.random.choice(list(possible_nodes))
+        poisoned_graph.add_edges(node_idx, new_node)
+        print(f"Nettack: Added edge between {node_idx} and {new_node}")
+    
+    return poisoned_graph
+
+
+# Apply Nettack to a target node
+poisoned_graph = nettack(graph, node_idx=10, perturbations=3)
+
+
+
+features = poisoned_graph.ndata['feature']
+labels = poisoned_graph.ndata['label']
+edges = torch.cat([poisoned_graph.edges()[0].unsqueeze(0), poisoned_graph.edges()[1].unsqueeze(0)], dim=0)
+
+nnodes = features.shape[0]
+input_dim = features.shape[1]
+idx_train, idx_val, idx_test = dataset_split(args.dataset, labels.cpu(), args.seed)
+
+label_noise, train_label, train_label_noise = noisify_with_P1(labels,idx_train=idx_train,noise_ratio=args.ptb_rate,random_state=args.seed,nclass=args.nclass)
+
+
+features = features.to(device)
+label_noise = label_noise.to(device)
+edges = edges.to(device)
+
+# model
+negatives_mask = ~torch.eye(args.batch_size * 2, args.batch_size * 2, dtype=bool).to(device)
+discriminator = Edge_Discriminator(args.nlayers, nnodes, input_dim, args.hidden_dim, input_dim, args.hidden_dim, args.alpha, 0.5).to(device)
+criterion = LabelDivision(args, input_dim).to(device)
+
+# optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=0.05)
+# optimizer_criterion = torch.optim.Adam(criterion.parameters(), lr=args.lr)
+optimizer = torch.optim.Adam([{'params':  discriminator.parameters(), 'lr':5*args.lr}, {'params':criterion.parameters()}], lr=args.lr)
+
+f1_best_lp = 0
+f1_best_hp = 0
+temperature = 0.5
+batch_size = args.batch_size
+auc_best_lp = 0
+auc_best_hp = 0
+
+print('Begin to training')
+for epoch in range(1, args.epochs):
+    # loss1 = train_discriminator1(discriminator, features, edges, args, batch_size, temperature, negatives_mask)
+    loss2 = train_division(features, edges, idx_train, label_noise, epoch, temperature, negatives_mask)
+    print('epoch;{}, loss2:{}'.format(epoch, loss2))
+
+    if epoch % 1 == 0:
+        discriminator.eval()
+        criterion.eval()
+        adj_lp, adj_hp, weights_lp, weights_hp = discriminator(features, edges)
+        emb_lp, emb_hp = discriminator.get_embedding(features, adj_lp, adj_hp)
         
         x_lp_score, x_hp_socre = criterion.to_prob(emb_lp, emb_hp)
         str1 = 'x_lp_score'
