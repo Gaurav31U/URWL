@@ -150,7 +150,7 @@ parser.add_argument("--train_ratio", type=float, default=0.4, help="Training rat
 parser.add_argument("--hidden_dim", type=int, default=32, help="Hidden layer dimension")
 parser.add_argument("--order", type=int, default=2, help="Order C in Beta Wavelet")
 parser.add_argument("--homo", type=int, default=1, help="1 for Homo and 0 for Hetero")
-parser.add_argument("--epochs", type=int, default=20, help="The max number of epochs")
+parser.add_argument("--epochs", type=int, default=5, help="The max number of epochs")
 parser.add_argument("--run", type=int, default=3, help="Running times")
 parser.add_argument("--noise", type=bool, default=True)
 parser.add_argument("--ptb_rate", type=float, default=0.1)
